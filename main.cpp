@@ -7,9 +7,17 @@ int main()
 {
     auto start = std::chrono::high_resolution_clock::now();
 
-    
-    uintptr_t addr = SigHunt::External::Find("FiveM_b3407_GameProcess.exe",
-        "48 8D 0D B0 42 E9 01 41 B6 01 44 89 2D");
+    // Simple example here
+    uintptr_t addr = SigHunt::External::Find("CalculatorApp.exe",
+        "E8 C3 ?? ?? ?? ?? ?? 90");
+
+    uintptr_t addr2 = SigHunt::Internal::Find("E8 C3 ?? ?? ?? ?? ?? 90");
+
+
+    std::vector<uintptr_t> allResExternal = SigHunt::External::FindAll("CalculatorApp.exe", "E8 C3 ?? ?? ?? ?? ?? 90");
+    std::vector<uintptr_t> allResInternal = SigHunt::Internal::FindAll("E8 C3 ?? ?? ?? ?? ?? 90");
+
+
 
     auto end = std::chrono::high_resolution_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);

@@ -685,4 +685,186 @@ namespace SigHunt
             return results;
         }
     }
+
+
+    // ========================================================================
+    // VTABLE INSTANCE SCANNING
+    // ========================================================================
+    namespace VTableScanner
+    {
+        
+
+        // Find all instances of a vtable in the current process
+        inline std::vector<uintptr_t> FindVTableInstances(uintptr_t vtableAddr)
+        {
+            std::vector<uintptr_t> results;
+
+            if (vtableAddr == 0)
+            {
+                std::cerr << "[ERROR] Invalid vtable address\n";
+                return results;
+            }
+
+            uintptr_t currentAddr = 0x10000;
+            const uintptr_t maxAddr = 0x00007FFFFFFFFFFF;
+            const SIZE_T MAX_REGION_SIZE = 0x10000000;
+
+            while (currentAddr < maxAddr)
+            {
+                MEMORY_BASIC_INFORMATION mbi = {};
+
+                if (VirtualQuery(reinterpret_cast<LPCVOID>(currentAddr), &mbi, sizeof(mbi)) == 0)
+                {
+                    currentAddr += 0x1000;
+                    continue;
+                }
+
+                // Only scan readable, committed memory
+                if ((mbi.State == MEM_COMMIT) && Detail::IsReadableProtection(mbi.Protect))
+                {
+                    SIZE_T regionSize = mbi.RegionSize;
+                    if (regionSize > MAX_REGION_SIZE)
+                        regionSize = MAX_REGION_SIZE;
+
+                    const uint8_t* data = static_cast<const uint8_t*>(mbi.BaseAddress);
+
+                    // Scan for vtable pointers (8 bytes on x64, 4 bytes on x86)
+                    size_t ptrSize = sizeof(uintptr_t);
+
+                    for (size_t offset = 0; offset + ptrSize <= regionSize; ++offset)
+                    {
+                        // Read potential vtable pointer at current offset
+                        uintptr_t ptr = *reinterpret_cast<const uintptr_t*>(data + offset);
+
+                        // Check if it matches our vtable address
+                        if (ptr == vtableAddr)
+                        {
+                            uintptr_t instanceAddr = reinterpret_cast<uintptr_t>(data) + offset;
+                            results.push_back(instanceAddr);
+                        }
+                    }
+                }
+
+                currentAddr = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+            }
+
+            return results;
+        }
+
+        // Find vtable instances in a specific module
+        inline std::vector<uintptr_t> FindVTableInstancesInModule(uintptr_t vtableAddr,
+            const std::string& moduleName)
+        {
+            std::vector<uintptr_t> results;
+
+            if (vtableAddr == 0)
+            {
+                std::cerr << "[ERROR] Invalid vtable address\n";
+                return results;
+            }
+
+            auto [baseAddr, endAddr] = Detail::GetModuleRange(moduleName);
+
+            if (baseAddr == 0 || endAddr == 0)
+            {
+                std::cerr << "[ERROR] Module not found: " << moduleName << "\n";
+                return results;
+            }
+
+            uintptr_t currentAddr = baseAddr;
+            const SIZE_T MAX_REGION_SIZE = 0x10000000;
+
+            while (currentAddr < endAddr)
+            {
+                MEMORY_BASIC_INFORMATION mbi = {};
+
+                if (VirtualQuery(reinterpret_cast<LPCVOID>(currentAddr), &mbi, sizeof(mbi)) == 0)
+                {
+                    currentAddr += 0x1000;
+                    continue;
+                }
+
+                if ((mbi.State == MEM_COMMIT) && Detail::IsReadableProtection(mbi.Protect))
+                {
+                    SIZE_T regionSize = mbi.RegionSize;
+
+                    uintptr_t regionEnd = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + regionSize;
+                    if (regionEnd > endAddr)
+                        regionSize = endAddr - reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+
+                    if (regionSize > MAX_REGION_SIZE)
+                        regionSize = MAX_REGION_SIZE;
+
+                    const uint8_t* data = static_cast<const uint8_t*>(mbi.BaseAddress);
+
+                    size_t ptrSize = sizeof(uintptr_t);
+
+                    for (size_t offset = 0; offset + ptrSize <= regionSize; ++offset)
+                    {
+                        uintptr_t ptr = *reinterpret_cast<const uintptr_t*>(data + offset);
+
+                        if (ptr == vtableAddr)
+                        {
+                            uintptr_t instanceAddr = reinterpret_cast<uintptr_t>(data) + offset;
+                            results.push_back(instanceAddr);
+                        }
+                    }
+                }
+
+                currentAddr = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+            }
+
+            return results;
+        }
+
+        // Find first vtable instance (faster if you only need one)
+        inline uintptr_t FindFirstVTableInstance(uintptr_t vtableAddr)
+        {
+            if (vtableAddr == 0)
+            {
+                std::cerr << "[ERROR] Invalid vtable address\n";
+                return 0;
+            }
+
+            uintptr_t currentAddr = 0x10000;
+            const uintptr_t maxAddr = 0x00007FFFFFFFFFFF;
+            const SIZE_T MAX_REGION_SIZE = 0x10000000;
+
+            while (currentAddr < maxAddr)
+            {
+                MEMORY_BASIC_INFORMATION mbi = {};
+
+                if (VirtualQuery(reinterpret_cast<LPCVOID>(currentAddr), &mbi, sizeof(mbi)) == 0)
+                {
+                    currentAddr += 0x1000;
+                    continue;
+                }
+
+                if ((mbi.State == MEM_COMMIT) && Detail::IsReadableProtection(mbi.Protect))
+                {
+                    SIZE_T regionSize = mbi.RegionSize;
+                    if (regionSize > MAX_REGION_SIZE)
+                        regionSize = MAX_REGION_SIZE;
+
+                    const uint8_t* data = static_cast<const uint8_t*>(mbi.BaseAddress);
+
+                    size_t ptrSize = sizeof(uintptr_t);
+
+                    for (size_t offset = 0; offset + ptrSize <= regionSize; ++offset)
+                    {
+                        uintptr_t ptr = *reinterpret_cast<const uintptr_t*>(data + offset);
+
+                        if (ptr == vtableAddr)
+                        {
+                            return reinterpret_cast<uintptr_t>(data) + offset;
+                        }
+                    }
+                }
+
+                currentAddr = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+            }
+
+            return 0;
+        }
+    }
 }
